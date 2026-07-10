@@ -29,6 +29,36 @@ const bounds = {
 const chunkWidth = 520;
 const chunkKeepBehind = 2;
 const chunkKeepAhead = 8;
+const missions = [
+  {
+    title: 'Homework Rescue',
+    message: 'Bring a half-finished worksheet to a friend before the bell.',
+    targetDistance: 850,
+    hazard: 'Smudges matter most',
+    paletteHint: 'classroom',
+  },
+  {
+    title: 'Window Love Letter',
+    message: 'Carry a careful note across sunset air to the glowing window.',
+    targetDistance: 1100,
+    hazard: 'Wrinkles lower the reward',
+    paletteHint: 'bedroom',
+  },
+  {
+    title: 'Treehouse Password',
+    message: 'Deliver the secret clubhouse word past backyard branches.',
+    targetDistance: 1350,
+    hazard: 'Branches are extra risky',
+    paletteHint: 'backyard',
+  },
+  {
+    title: 'Rainy Apology',
+    message: 'Keep an apology readable through blue hallway weather.',
+    targetDistance: 1000,
+    hazard: 'Message condition is precious',
+    paletteHint: 'rain glass',
+  },
+];
 
 let chunks = [];
 let particles = [];
@@ -54,13 +84,19 @@ function createPlane() {
 }
 
 function createRunState() {
+  const mission = chooseMission();
+
   return {
+    mission,
+    delivered: false,
+    deliveryBonus: 0,
+    outcome: 'In flight',
     messageCondition: 100,
     confidence: 0,
     folds: [],
     stickers: [],
     pickupsCollected: 0,
-    lastUpgradeText: 'Find folds and stickers',
+    lastUpgradeText: mission.title,
   };
 }
 
@@ -150,6 +186,8 @@ function update(deltaSeconds) {
   cameraX = Math.max(0, plane.x - bounds.width * 0.28);
   runDistance = Math.max(runDistance, plane.x - 160);
 
+  checkDeliveryProgress();
+
   if (plane.y < bounds.ceilingY || plane.y > bounds.groundY) {
     crashPlane();
   }
@@ -163,6 +201,7 @@ function update(deltaSeconds) {
 function crashPlane() {
   plane.crashed = true;
   plane.durability = Math.max(0, plane.durability - 35);
+  runState.outcome = createMissionOutcome();
   plane.bestDistance = Math.max(plane.bestDistance, Math.floor(runDistance));
   localStorage.setItem('paper.bestDistance', String(plane.bestDistance));
 }
@@ -193,6 +232,7 @@ function render() {
   drawParticles('back');
   drawWindZones();
   drawWorldSilhouettes();
+  drawDeliveryMarker();
   drawPickups();
   drawPlane();
   drawParticles('front');
@@ -459,24 +499,28 @@ function drawPlane() {
 function drawHud() {
   const speed = Math.floor(Math.hypot(plane.velocityX, plane.velocityY));
   context.fillStyle = 'rgba(8, 11, 20, 0.58)';
-  context.fillRect(20, 20, 330, plane.crashed ? 220 : 188);
+  context.fillRect(20, 20, 390, plane.crashed ? 284 : 232);
   context.fillStyle = '#fff5d6';
   context.font = '600 18px Inter, system-ui, sans-serif';
-  context.fillText(`Distance ${Math.floor(runDistance)} m`, 36, 52);
-  context.fillText(`Best ${plane.bestDistance} m`, 36, 80);
-  context.fillText(`Speed ${speed}`, 36, 108);
-  context.fillText(`Chunk ${getCurrentChunkLabel()}`, 36, 136);
-  context.fillText(`Plane ${Math.ceil(plane.durability)}%`, 36, 164);
-  context.fillText(`Message ${Math.ceil(runState.messageCondition)}%`, 180, 164);
+  context.fillText(runState.mission.title, 36, 52);
+  context.font = '500 14px Inter, system-ui, sans-serif';
+  context.fillText(runState.mission.hazard, 36, 76);
+  context.font = '600 18px Inter, system-ui, sans-serif';
+  context.fillText(`Distance ${Math.floor(runDistance)} / ${runState.mission.targetDistance} m`, 36, 108);
+  context.fillText(`Best ${plane.bestDistance} m`, 36, 136);
+  context.fillText(`Speed ${speed}`, 220, 136);
+  context.fillText(`Chunk ${getCurrentChunkLabel()}`, 36, 164);
+  context.fillText(`Plane ${Math.ceil(plane.durability)}%`, 36, 192);
+  context.fillText(`Message ${Math.ceil(runState.messageCondition)}%`, 180, 192);
 
   if (plane.stall > 0.05) {
     context.fillStyle = `rgba(255, 229, 150, ${0.45 + plane.stall * 0.55})`;
-    context.fillText('STALL — dive to recover', 36, 192);
+    context.fillText('STALL — dive to recover', 36, 220);
   }
 
   context.fillStyle = '#ffe596';
   context.font = '500 15px Inter, system-ui, sans-serif';
-  context.fillText(runState.lastUpgradeText, 36, 192);
+  context.fillText(runState.lastUpgradeText, 36, 220);
 
   if (plane.crashed) {
     context.fillStyle = '#fff5d6';
@@ -484,6 +528,7 @@ function drawHud() {
     context.fillText('Crashed!', bounds.width / 2 - 70, bounds.height / 2 - 16);
     context.font = '500 18px Inter, system-ui, sans-serif';
     context.fillText('Press R to fold again', bounds.width / 2 - 86, bounds.height / 2 + 20);
+    context.fillText(runState.outcome, bounds.width / 2 - 170, bounds.height / 2 + 52);
   }
 }
 
@@ -738,6 +783,61 @@ function collectPickup(pickup) {
   runState.messageCondition = clamp(runState.messageCondition + 14, 0, 100);
 }
 
+function chooseMission() {
+  const storedBest = Number(localStorage.getItem('paper.bestDistance') ?? 0);
+  const index = Math.floor(storedBest / 350) % missions.length;
+  return { ...missions[index] };
+}
+
+function checkDeliveryProgress() {
+  if (runState.delivered || runDistance < runState.mission.targetDistance) {
+    return;
+  }
+
+  runState.delivered = true;
+  runState.deliveryBonus = Math.floor(runState.messageCondition + plane.durability * 0.5);
+  runState.confidence = 100;
+  runState.lastUpgradeText = 'Delivered! Keep riding the memory.';
+}
+
+function createMissionOutcome() {
+  if (runState.delivered) {
+    return `Delivered: ${runState.mission.title} (+${runState.deliveryBonus})`;
+  }
+
+  if (runState.messageCondition <= 0) {
+    return `The ${runState.mission.title.toLowerCase()} became unreadable.`;
+  }
+
+  const remaining = Math.max(0, Math.ceil(runState.mission.targetDistance - runDistance));
+  return `${remaining} m short of delivering ${runState.mission.title}.`;
+}
+
+function drawDeliveryMarker() {
+  const markerX = 160 + runState.mission.targetDistance - cameraX;
+
+  if (runState.delivered || markerX < -80 || markerX > bounds.width + 80) {
+    return;
+  }
+
+  context.save();
+  context.globalAlpha = 0.78;
+  context.strokeStyle = '#fff5d6';
+  context.fillStyle = 'rgba(255, 245, 214, 0.16)';
+  context.lineWidth = 2;
+  context.setLineDash([8, 10]);
+  context.beginPath();
+  context.moveTo(markerX, bounds.ceilingY + 18);
+  context.lineTo(markerX, bounds.groundY - 18);
+  context.stroke();
+  context.setLineDash([]);
+  context.fillRect(markerX - 44, bounds.ceilingY + 28, 88, 30);
+  context.fillStyle = '#fff5d6';
+  context.font = '700 14px Inter, system-ui, sans-serif';
+  context.fillText('DELIVER', markerX - 31, bounds.ceilingY + 49);
+  context.restore();
+}
+
 function createParticles() {
   const particleCount = Math.max(45, Math.floor((bounds.width * bounds.height) / 19000));
   const newParticles = [];
@@ -855,7 +955,7 @@ function getCurrentChunkLabel() {
 }
 
 function getMoodPalette() {
-  const label = getCurrentChunkLabel();
+  const label = runState.delivered ? runState.mission.paletteHint : getCurrentChunkLabel();
   const palettes = {
     bedroom: {
       skyTop: '#201a36',
