@@ -35,6 +35,7 @@ let lastTimestamp = performance.now();
 let cameraX = 0;
 let runDistance = 0;
 let plane = createPlane();
+let runState = createRunState();
 
 function createPlane() {
   return {
@@ -44,9 +45,21 @@ function createPlane() {
     velocityY: -10,
     pitch: -0.04,
     durability: 100,
+    invulnerableSeconds: 0,
     crashed: false,
     stall: 0,
     bestDistance: Number(localStorage.getItem('paper.bestDistance') ?? 0),
+  };
+}
+
+function createRunState() {
+  return {
+    messageCondition: 100,
+    confidence: 0,
+    folds: [],
+    stickers: [],
+    pickupsCollected: 0,
+    lastUpgradeText: 'Find folds and stickers',
   };
 }
 
@@ -88,6 +101,7 @@ function restartRun() {
   const bestDistance = plane.bestDistance;
   plane = createPlane();
   plane.bestDistance = bestDistance;
+  runState = createRunState();
   cameraX = 0;
   runDistance = 0;
   chunks = createInitialChunks();
@@ -105,6 +119,9 @@ function update(deltaSeconds) {
     plane.pitch += 2.4 * deltaSeconds;
     return;
   }
+
+  plane.invulnerableSeconds = Math.max(0, plane.invulnerableSeconds - deltaSeconds);
+  runState.confidence = clamp(runState.confidence + deltaSeconds * 1.8, 0, 100);
 
   const pitchTarget = input.pitchUp ? -0.92 : input.pitchDown ? 0.72 : -0.08;
   const pitchResponsiveness = input.pitchDown ? 6.5 : 4.25;
@@ -137,6 +154,7 @@ function update(deltaSeconds) {
 
   updateChunks();
   checkObstacleCollision();
+  checkPickupCollection();
 }
 
 function crashPlane() {
@@ -146,11 +164,31 @@ function crashPlane() {
   localStorage.setItem('paper.bestDistance', String(plane.bestDistance));
 }
 
+function damagePlane(amount, messageAmount) {
+  if (plane.invulnerableSeconds > 0 || plane.crashed) {
+    return;
+  }
+
+  plane.durability = Math.max(0, plane.durability - amount);
+  runState.messageCondition = Math.max(0, runState.messageCondition - messageAmount);
+  runState.confidence = Math.max(0, runState.confidence - 22);
+  plane.invulnerableSeconds = 0.9;
+  plane.velocityX *= 0.62;
+  plane.velocityY = Math.min(260, plane.velocityY + 130);
+  plane.pitch += 0.35;
+  runState.lastUpgradeText = messageAmount > amount ? 'The message got scuffed' : 'The plane crumpled';
+
+  if (plane.durability <= 0 || runState.messageCondition <= 0) {
+    crashPlane();
+  }
+}
+
 function render() {
   drawSky();
   drawParallax();
   drawWindZones();
   drawWorldSilhouettes();
+  drawPickups();
   drawPlane();
   drawHud();
 }
@@ -272,6 +310,63 @@ function drawWindZones() {
   }
 }
 
+function drawPickups() {
+  for (const chunk of chunks) {
+    for (const pickup of chunk.pickups) {
+      if (pickup.collected || pickup.x < cameraX - 40 || pickup.x > cameraX + bounds.width + 40) {
+        continue;
+      }
+
+      const screenX = pickup.x - cameraX;
+      const pulse = Math.sin(performance.now() * 0.006 + pickup.x * 0.02) * 3;
+
+      context.save();
+      context.translate(screenX, pickup.y + pulse);
+      context.shadowColor = pickup.color;
+      context.shadowBlur = 14;
+      context.fillStyle = pickup.color;
+
+      if (pickup.type === 'fold') {
+        context.beginPath();
+        context.moveTo(0, -16);
+        context.lineTo(18, 0);
+        context.lineTo(0, 16);
+        context.lineTo(-18, 0);
+        context.closePath();
+        context.fill();
+      } else if (pickup.type === 'sticker') {
+        drawStar(0, 0, 5, 17, 8);
+      } else {
+        context.fillRect(-13, -8, 26, 16);
+        context.strokeStyle = '#fff5d6';
+        context.strokeRect(-13, -8, 26, 16);
+      }
+
+      context.restore();
+    }
+  }
+}
+
+function drawStar(x, y, points, outerRadius, innerRadius) {
+  context.beginPath();
+
+  for (let point = 0; point < points * 2; point += 1) {
+    const radius = point % 2 === 0 ? outerRadius : innerRadius;
+    const angle = -Math.PI / 2 + (point * Math.PI) / points;
+    const starX = x + Math.cos(angle) * radius;
+    const starY = y + Math.sin(angle) * radius;
+
+    if (point === 0) {
+      context.moveTo(starX, starY);
+    } else {
+      context.lineTo(starX, starY);
+    }
+  }
+
+  context.closePath();
+  context.fill();
+}
+
 function drawPlane() {
   const screenX = plane.x - cameraX;
   const screenY = plane.y;
@@ -306,18 +401,24 @@ function drawPlane() {
 function drawHud() {
   const speed = Math.floor(Math.hypot(plane.velocityX, plane.velocityY));
   context.fillStyle = 'rgba(8, 11, 20, 0.58)';
-  context.fillRect(20, 20, 330, plane.crashed ? 180 : 140);
+  context.fillRect(20, 20, 330, plane.crashed ? 220 : 188);
   context.fillStyle = '#fff5d6';
   context.font = '600 18px Inter, system-ui, sans-serif';
   context.fillText(`Distance ${Math.floor(runDistance)} m`, 36, 52);
   context.fillText(`Best ${plane.bestDistance} m`, 36, 80);
   context.fillText(`Speed ${speed}`, 36, 108);
   context.fillText(`Chunk ${getCurrentChunkLabel()}`, 36, 136);
+  context.fillText(`Plane ${Math.ceil(plane.durability)}%`, 36, 164);
+  context.fillText(`Message ${Math.ceil(runState.messageCondition)}%`, 180, 164);
 
   if (plane.stall > 0.05) {
     context.fillStyle = `rgba(255, 229, 150, ${0.45 + plane.stall * 0.55})`;
-    context.fillText('STALL — dive to recover', 36, 164);
+    context.fillText('STALL — dive to recover', 36, 192);
   }
+
+  context.fillStyle = '#ffe596';
+  context.font = '500 15px Inter, system-ui, sans-serif';
+  context.fillText(runState.lastUpgradeText, 36, 192);
 
   if (plane.crashed) {
     context.fillStyle = '#fff5d6';
@@ -363,6 +464,7 @@ function createChunk(index) {
   const obstacleCount = index === 0 ? 1 : 2 + Math.floor(seededNoise(index + 4) * (2 + difficulty * 3));
   const obstacles = [];
   const windZones = [];
+  const pickups = [];
 
   for (let obstacleIndex = 0; obstacleIndex < obstacleCount; obstacleIndex += 1) {
     obstacles.push(createObstacle(index, obstacleIndex, x, difficulty, style));
@@ -372,6 +474,10 @@ function createChunk(index) {
     windZones.push(createWindZone(index, x, difficulty));
   }
 
+  if (index > 0 && seededNoise(index + 17) > 0.44) {
+    pickups.push(createPickup(index, x));
+  }
+
   return {
     index,
     x,
@@ -379,6 +485,7 @@ function createChunk(index) {
     tint: style.tint,
     obstacles,
     windZones,
+    pickups,
   };
 }
 
@@ -457,6 +564,31 @@ function createWindZone(index, chunkX, difficulty) {
   };
 }
 
+function createPickup(index, chunkX) {
+  const roll = seededNoise(index * 67);
+  const type = roll > 0.68 ? 'sticker' : roll > 0.2 ? 'fold' : 'repair';
+  const names = {
+    fold: ['Wide Wing Fold', 'Tail Fin Fold', 'Reinforced Crease', 'Sharp Nose Fold'],
+    sticker: ['Heart Sticker', 'Cloud Sticker', 'Star Sticker', 'Moon Sticker'],
+    repair: ['Tape Patch', 'Sunbeam Drying', 'Gentle Refold'],
+  };
+  const palette = {
+    fold: '#fff5d6',
+    sticker: '#ffd36f',
+    repair: '#b9f6ca',
+  };
+
+  return {
+    type,
+    name: names[type][Math.floor(seededNoise(index * 71) * names[type].length)],
+    x: chunkX + 170 + seededNoise(index * 73) * 230,
+    y: bounds.ceilingY + 90 + seededNoise(index * 79) * (bounds.groundY - bounds.ceilingY - 180),
+    radius: 24,
+    color: palette[type],
+    collected: false,
+  };
+}
+
 function getWindAt(x, y) {
   const wind = { x: 0, y: 0 };
 
@@ -488,7 +620,7 @@ function checkObstacleCollision() {
     for (const obstacle of chunk.obstacles) {
       if (obstacle.kind === 'branch') {
         if (pointNearRotatedRect(noseX, noseY, obstacle, radius)) {
-          crashPlane();
+          damagePlane(22, 12);
           return;
         }
 
@@ -501,11 +633,51 @@ function checkObstacleCollision() {
         noseY + radius > obstacle.y &&
         noseY - radius < obstacle.y + obstacle.height
       ) {
-        crashPlane();
+        damagePlane(28, 18);
         return;
       }
     }
   }
+}
+
+function checkPickupCollection() {
+  for (const chunk of chunks) {
+    for (const pickup of chunk.pickups) {
+      if (pickup.collected) {
+        continue;
+      }
+
+      const distance = Math.hypot(plane.x - pickup.x, plane.y - pickup.y);
+
+      if (distance <= pickup.radius + 18) {
+        collectPickup(pickup);
+      }
+    }
+  }
+}
+
+function collectPickup(pickup) {
+  pickup.collected = true;
+  runState.pickupsCollected += 1;
+  runState.confidence = clamp(runState.confidence + 18, 0, 100);
+  runState.lastUpgradeText = pickup.name;
+
+  if (pickup.type === 'fold') {
+    runState.folds.push(pickup.name);
+    plane.durability = clamp(plane.durability + 8, 0, 100);
+    plane.velocityX += 24;
+    return;
+  }
+
+  if (pickup.type === 'sticker') {
+    runState.stickers.push(pickup.name);
+    runState.messageCondition = clamp(runState.messageCondition + 10, 0, 100);
+    plane.velocityY -= 42;
+    return;
+  }
+
+  plane.durability = clamp(plane.durability + 18, 0, 100);
+  runState.messageCondition = clamp(runState.messageCondition + 14, 0, 100);
 }
 
 function pointNearRotatedRect(x, y, obstacle, padding) {
