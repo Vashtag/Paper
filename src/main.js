@@ -1,5 +1,3 @@
-import './style.css';
-
 const app = document.querySelector('#app');
 
 if (!app) {
@@ -28,6 +26,11 @@ const bounds = {
   ceilingY: 60,
 };
 
+const chunkWidth = 520;
+const chunkKeepBehind = 2;
+const chunkKeepAhead = 8;
+
+let chunks = [];
 let lastTimestamp = performance.now();
 let cameraX = 0;
 let runDistance = 0;
@@ -87,6 +90,7 @@ function restartRun() {
   plane.bestDistance = bestDistance;
   cameraX = 0;
   runDistance = 0;
+  chunks = createInitialChunks();
 }
 
 function update(deltaSeconds) {
@@ -107,15 +111,15 @@ function update(deltaSeconds) {
   plane.pitch += (pitchTarget - plane.pitch) * pitchResponsiveness * deltaSeconds;
 
   const speed = Math.hypot(plane.velocityX, plane.velocityY);
-  const normalizedSpeed = clamp(speed / 440, 0, 1.7);
+  const wind = getWindAt(plane.x, plane.y);
   const diveAcceleration = Math.max(0, Math.sin(plane.pitch)) * 360;
   const climbAngle = Math.max(0, -Math.sin(plane.pitch));
   const lift = climbAngle * speed * 1.55;
   const stallPressure = climbAngle > 0.48 && speed < 245 ? (0.48 + climbAngle) * 290 : 0;
   const drag = 0.985 - Math.max(0, speed - 380) * 0.000025;
 
-  plane.velocityX += (42 + diveAcceleration - climbAngle * 78) * deltaSeconds;
-  plane.velocityY += (285 - lift + stallPressure) * deltaSeconds;
+  plane.velocityX += (42 + diveAcceleration - climbAngle * 78 + wind.x) * deltaSeconds;
+  plane.velocityY += (285 - lift + stallPressure + wind.y) * deltaSeconds;
   plane.velocityX *= Math.pow(clamp(drag, 0.945, 0.992), deltaSeconds * 60);
   plane.velocityY *= Math.pow(0.991, deltaSeconds * 60);
   plane.velocityX = clamp(plane.velocityX, 150, 640);
@@ -130,6 +134,9 @@ function update(deltaSeconds) {
   if (plane.y < bounds.ceilingY || plane.y > bounds.groundY) {
     crashPlane();
   }
+
+  updateChunks();
+  checkObstacleCollision();
 }
 
 function crashPlane() {
@@ -142,6 +149,7 @@ function crashPlane() {
 function render() {
   drawSky();
   drawParallax();
+  drawWindZones();
   drawWorldSilhouettes();
   drawPlane();
   drawHud();
@@ -186,17 +194,80 @@ function drawWorldSilhouettes() {
   context.fillRect(0, groundScreenY, bounds.width, bounds.height - groundScreenY);
   context.fillRect(0, 0, bounds.width, bounds.ceilingY - 28);
 
-  for (let i = -2; i < 18; i += 1) {
-    const worldX = Math.floor((cameraX + i * 180) / 180) * 180;
-    const screenX = worldX - cameraX;
-    const height = 46 + seededNoise(worldX) * 118;
-    const width = 34 + seededNoise(worldX + 41) * 54;
+  for (const chunk of chunks) {
+    if (chunk.x + chunkWidth < cameraX - 80 || chunk.x > cameraX + bounds.width + 80) {
+      continue;
+    }
 
-    context.fillStyle = i % 3 === 0 ? '#0c1020' : '#070912';
-    context.fillRect(screenX, groundScreenY - height, width, height);
+    drawChunkBackdrop(chunk);
 
-    if (i % 4 === 0) {
-      context.fillRect(screenX + width + 18, bounds.ceilingY - 18, 28, 120 + seededNoise(worldX + 9) * 100);
+    for (const obstacle of chunk.obstacles) {
+      drawObstacle(obstacle);
+    }
+  }
+}
+
+function drawChunkBackdrop(chunk) {
+  const screenX = chunk.x - cameraX;
+  context.save();
+  context.globalAlpha = 0.34;
+  context.fillStyle = chunk.tint;
+  context.fillRect(screenX, bounds.ceilingY - 28, chunkWidth, 18);
+  context.fillRect(screenX, bounds.groundY, chunkWidth, 18);
+  context.restore();
+}
+
+function drawObstacle(obstacle) {
+  const screenX = obstacle.x - cameraX;
+  context.fillStyle = obstacle.color;
+
+  if (obstacle.kind === 'arch') {
+    context.fillRect(screenX, obstacle.y, obstacle.width, obstacle.height);
+    context.beginPath();
+    context.arc(screenX + obstacle.width / 2, obstacle.y, obstacle.width / 2, Math.PI, 0);
+    context.fill();
+    return;
+  }
+
+  if (obstacle.kind === 'branch') {
+    context.save();
+    context.translate(screenX, obstacle.y);
+    context.rotate(obstacle.rotation);
+    context.fillRect(0, -obstacle.height / 2, obstacle.width, obstacle.height);
+    context.restore();
+    return;
+  }
+
+  context.fillRect(screenX, obstacle.y, obstacle.width, obstacle.height);
+}
+
+function drawWindZones() {
+  for (const chunk of chunks) {
+    for (const windZone of chunk.windZones) {
+      if (windZone.x + windZone.width < cameraX || windZone.x > cameraX + bounds.width) {
+        continue;
+      }
+
+      const screenX = windZone.x - cameraX;
+      const gradient = context.createLinearGradient(screenX, windZone.y, screenX, windZone.y + windZone.height);
+      gradient.addColorStop(0, 'rgba(255, 245, 214, 0)');
+      gradient.addColorStop(0.5, windZone.color);
+      gradient.addColorStop(1, 'rgba(255, 245, 214, 0)');
+
+      context.save();
+      context.fillStyle = gradient;
+      context.fillRect(screenX, windZone.y, windZone.width, windZone.height);
+      context.strokeStyle = 'rgba(255, 245, 214, 0.34)';
+      context.lineWidth = 1.5;
+
+      for (let x = screenX + 18; x < screenX + windZone.width; x += 34) {
+        context.beginPath();
+        context.moveTo(x, windZone.y + windZone.height * 0.75);
+        context.quadraticCurveTo(x + 18, windZone.y + windZone.height * 0.35, x + 4, windZone.y + windZone.height * 0.12);
+        context.stroke();
+      }
+
+      context.restore();
     }
   }
 }
@@ -235,16 +306,17 @@ function drawPlane() {
 function drawHud() {
   const speed = Math.floor(Math.hypot(plane.velocityX, plane.velocityY));
   context.fillStyle = 'rgba(8, 11, 20, 0.58)';
-  context.fillRect(20, 20, 310, plane.crashed ? 156 : 116);
+  context.fillRect(20, 20, 330, plane.crashed ? 180 : 140);
   context.fillStyle = '#fff5d6';
   context.font = '600 18px Inter, system-ui, sans-serif';
   context.fillText(`Distance ${Math.floor(runDistance)} m`, 36, 52);
   context.fillText(`Best ${plane.bestDistance} m`, 36, 80);
   context.fillText(`Speed ${speed}`, 36, 108);
+  context.fillText(`Chunk ${getCurrentChunkLabel()}`, 36, 136);
 
   if (plane.stall > 0.05) {
     context.fillStyle = `rgba(255, 229, 150, ${0.45 + plane.stall * 0.55})`;
-    context.fillText('STALL — dive to recover', 36, 136);
+    context.fillText('STALL — dive to recover', 36, 164);
   }
 
   if (plane.crashed) {
@@ -254,6 +326,207 @@ function drawHud() {
     context.font = '500 18px Inter, system-ui, sans-serif';
     context.fillText('Press R to fold again', bounds.width / 2 - 86, bounds.height / 2 + 20);
   }
+}
+
+function createInitialChunks() {
+  const initialChunks = [];
+
+  for (let index = 0; index < chunkKeepAhead; index += 1) {
+    initialChunks.push(createChunk(index));
+  }
+
+  return initialChunks;
+}
+
+function updateChunks() {
+  const playerChunkIndex = Math.floor(plane.x / chunkWidth);
+  const firstChunkIndex = Math.max(0, playerChunkIndex - chunkKeepBehind);
+  const lastChunkIndex = playerChunkIndex + chunkKeepAhead;
+
+  chunks = chunks.filter((chunk) => chunk.index >= firstChunkIndex);
+
+  const existingIndexes = new Set(chunks.map((chunk) => chunk.index));
+
+  for (let index = firstChunkIndex; index <= lastChunkIndex; index += 1) {
+    if (!existingIndexes.has(index)) {
+      chunks.push(createChunk(index));
+    }
+  }
+
+  chunks.sort((a, b) => a.index - b.index);
+}
+
+function createChunk(index) {
+  const x = index * chunkWidth;
+  const difficulty = clamp(index / 12, 0, 1);
+  const style = getChunkStyle(index);
+  const obstacleCount = index === 0 ? 1 : 2 + Math.floor(seededNoise(index + 4) * (2 + difficulty * 3));
+  const obstacles = [];
+  const windZones = [];
+
+  for (let obstacleIndex = 0; obstacleIndex < obstacleCount; obstacleIndex += 1) {
+    obstacles.push(createObstacle(index, obstacleIndex, x, difficulty, style));
+  }
+
+  if (index > 0 && seededNoise(index + 11) > 0.34) {
+    windZones.push(createWindZone(index, x, difficulty));
+  }
+
+  return {
+    index,
+    x,
+    label: style.label,
+    tint: style.tint,
+    obstacles,
+    windZones,
+  };
+}
+
+function getChunkStyle(index) {
+  const styles = [
+    { label: 'bedroom', tint: '#2c2340', color: '#080b14' },
+    { label: 'hallway', tint: '#26304d', color: '#0a0d18' },
+    { label: 'classroom', tint: '#38263a', color: '#0c1020' },
+    { label: 'backyard', tint: '#1f332d', color: '#071009' },
+    { label: 'rain glass', tint: '#1d3442', color: '#07101a' },
+  ];
+
+  return styles[Math.floor(seededNoise(index * 7 + 3) * styles.length)];
+}
+
+function createObstacle(chunkIndex, obstacleIndex, chunkX, difficulty, style) {
+  const laneNoise = seededNoise(chunkIndex * 19 + obstacleIndex * 31);
+  const sizeNoise = seededNoise(chunkIndex * 23 + obstacleIndex * 17);
+  const localX = 120 + obstacleIndex * 130 + seededNoise(chunkIndex * 13 + obstacleIndex) * 70;
+  const width = 32 + sizeNoise * 58 + difficulty * 26;
+  const minGap = 185 - difficulty * 58;
+  const height = 75 + seededNoise(chunkIndex * 29 + obstacleIndex * 5) * 135 + difficulty * 70;
+  const fromCeiling = laneNoise > 0.52;
+  const kind = laneNoise > 0.82 ? 'branch' : laneNoise > 0.68 ? 'arch' : 'block';
+
+  if (kind === 'branch') {
+    const y = bounds.ceilingY + 110 + seededNoise(chunkIndex * 37 + obstacleIndex) * (bounds.groundY - bounds.ceilingY - 220);
+
+    return {
+      kind,
+      x: chunkX + localX,
+      y,
+      width: 140 + difficulty * 90,
+      height: 18 + difficulty * 10,
+      rotation: (seededNoise(chunkIndex * 41 + obstacleIndex) - 0.5) * 0.75,
+      color: style.color,
+    };
+  }
+
+  if (fromCeiling) {
+    return {
+      kind,
+      x: chunkX + localX,
+      y: bounds.ceilingY - 28,
+      width,
+      height: Math.min(height, bounds.groundY - bounds.ceilingY - minGap),
+      color: style.color,
+    };
+  }
+
+  const obstacleHeight = Math.min(height, bounds.groundY - bounds.ceilingY - minGap);
+
+  return {
+    kind,
+    x: chunkX + localX,
+    y: bounds.groundY - obstacleHeight,
+    width,
+    height: obstacleHeight,
+    color: style.color,
+  };
+}
+
+function createWindZone(index, chunkX, difficulty) {
+  const isUpdraft = seededNoise(index * 43) > 0.28;
+  const width = 86 + seededNoise(index * 47) * 110;
+  const height = 150 + seededNoise(index * 53) * 140;
+
+  return {
+    x: chunkX + 80 + seededNoise(index * 59) * (chunkWidth - width - 120),
+    y: bounds.ceilingY + 60 + seededNoise(index * 61) * Math.max(80, bounds.groundY - bounds.ceilingY - height - 100),
+    width,
+    height,
+    xForce: isUpdraft ? 34 + difficulty * 28 : -24,
+    yForce: isUpdraft ? -210 - difficulty * 90 : 170 + difficulty * 70,
+    color: isUpdraft ? 'rgba(255, 245, 214, 0.16)' : 'rgba(78, 97, 137, 0.2)',
+  };
+}
+
+function getWindAt(x, y) {
+  const wind = { x: 0, y: 0 };
+
+  for (const chunk of chunks) {
+    for (const windZone of chunk.windZones) {
+      if (x < windZone.x || x > windZone.x + windZone.width || y < windZone.y || y > windZone.y + windZone.height) {
+        continue;
+      }
+
+      const centerX = windZone.x + windZone.width / 2;
+      const centerY = windZone.y + windZone.height / 2;
+      const horizontalFalloff = 1 - Math.abs(x - centerX) / (windZone.width / 2);
+      const verticalFalloff = 1 - Math.abs(y - centerY) / (windZone.height / 2);
+      const strength = clamp(Math.min(horizontalFalloff, verticalFalloff), 0, 1);
+      wind.x += windZone.xForce * strength;
+      wind.y += windZone.yForce * strength;
+    }
+  }
+
+  return wind;
+}
+
+function checkObstacleCollision() {
+  const noseX = plane.x + Math.cos(plane.pitch) * 24;
+  const noseY = plane.y + Math.sin(plane.pitch) * 24;
+  const radius = 15;
+
+  for (const chunk of chunks) {
+    for (const obstacle of chunk.obstacles) {
+      if (obstacle.kind === 'branch') {
+        if (pointNearRotatedRect(noseX, noseY, obstacle, radius)) {
+          crashPlane();
+          return;
+        }
+
+        continue;
+      }
+
+      if (
+        noseX + radius > obstacle.x &&
+        noseX - radius < obstacle.x + obstacle.width &&
+        noseY + radius > obstacle.y &&
+        noseY - radius < obstacle.y + obstacle.height
+      ) {
+        crashPlane();
+        return;
+      }
+    }
+  }
+}
+
+function pointNearRotatedRect(x, y, obstacle, padding) {
+  const cos = Math.cos(-obstacle.rotation);
+  const sin = Math.sin(-obstacle.rotation);
+  const dx = x - obstacle.x;
+  const dy = y - obstacle.y;
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+
+  return (
+    localX > -padding &&
+    localX < obstacle.width + padding &&
+    localY > -obstacle.height / 2 - padding &&
+    localY < obstacle.height / 2 + padding
+  );
+}
+
+function getCurrentChunkLabel() {
+  const currentChunk = chunks.find((chunk) => plane.x >= chunk.x && plane.x < chunk.x + chunkWidth);
+  return currentChunk?.label ?? 'memory';
 }
 
 function tick(timestamp) {
@@ -278,4 +551,5 @@ window.addEventListener('keydown', (event) => setKey(event.key, true));
 window.addEventListener('keyup', (event) => setKey(event.key, false));
 
 resizeCanvas();
+chunks = createInitialChunks();
 requestAnimationFrame(tick);
