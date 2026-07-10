@@ -20,6 +20,8 @@ npm run dev
 
 Then open <http://localhost:5173>.
 
+The app uses relative asset paths so it can be hosted from a GitHub Pages project path such as `/Paper/`.
+
 ## Build / checks
 
 ```bash
