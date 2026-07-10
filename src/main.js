@@ -31,6 +31,7 @@ const chunkKeepBehind = 2;
 const chunkKeepAhead = 8;
 
 let chunks = [];
+let particles = [];
 let lastTimestamp = performance.now();
 let cameraX = 0;
 let runDistance = 0;
@@ -75,6 +76,7 @@ function resizeCanvas() {
   canvas.style.width = `${bounds.width}px`;
   canvas.style.height = `${bounds.height}px`;
   context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  particles = createParticles();
 }
 
 function setKey(key, pressed) {
@@ -153,6 +155,7 @@ function update(deltaSeconds) {
   }
 
   updateChunks();
+  updateParticles(deltaSeconds);
   checkObstacleCollision();
   checkPickupCollection();
 }
@@ -185,26 +188,44 @@ function damagePlane(amount, messageAmount) {
 
 function render() {
   drawSky();
+  drawSunGlow();
   drawParallax();
+  drawParticles('back');
   drawWindZones();
   drawWorldSilhouettes();
   drawPickups();
   drawPlane();
+  drawParticles('front');
+  drawVignette();
   drawHud();
 }
 
 function drawSky() {
+  const palette = getMoodPalette();
   const gradient = context.createLinearGradient(0, 0, 0, bounds.height);
-  gradient.addColorStop(0, '#29334f');
-  gradient.addColorStop(0.5, '#a76869');
-  gradient.addColorStop(1, '#f2b36d');
+  gradient.addColorStop(0, palette.skyTop);
+  gradient.addColorStop(0.5, palette.skyMid);
+  gradient.addColorStop(1, palette.skyBottom);
   context.fillStyle = gradient;
   context.fillRect(0, 0, bounds.width, bounds.height);
 }
 
+function drawSunGlow() {
+  const palette = getMoodPalette();
+  const glowX = bounds.width * 0.72 - (cameraX * 0.035) % (bounds.width * 0.45);
+  const glowY = bounds.height * 0.28;
+  const glow = context.createRadialGradient(glowX, glowY, 12, glowX, glowY, bounds.width * 0.48);
+  glow.addColorStop(0, palette.glow);
+  glow.addColorStop(1, 'rgba(255, 245, 214, 0)');
+  context.fillStyle = glow;
+  context.fillRect(0, 0, bounds.width, bounds.height);
+}
+
 function drawParallax() {
-  drawLayer('#182039', 0.15, 170, 52, 0.8);
-  drawLayer('#11172c', 0.32, 230, 76, 0.95);
+  const palette = getMoodPalette();
+  drawLayer(palette.far, 0.12, 145, 42, 0.72);
+  drawMemoryShapes(palette);
+  drawLayer(palette.mid, 0.28, 230, 76, 0.92);
 }
 
 function drawLayer(color, factor, baseY, amplitude, alpha) {
@@ -223,6 +244,31 @@ function drawLayer(color, factor, baseY, amplitude, alpha) {
   context.lineTo(bounds.width, bounds.height);
   context.closePath();
   context.fill();
+  context.restore();
+}
+
+function drawMemoryShapes(palette) {
+  context.save();
+  context.globalAlpha = 0.28;
+  context.fillStyle = palette.memory;
+
+  for (let i = -1; i < 8; i += 1) {
+    const worldX = Math.floor((cameraX * 0.2 + i * 260) / 260) * 260;
+    const screenX = worldX - cameraX * 0.2;
+    const y = 110 + seededNoise(worldX + 90) * 90;
+    const width = 90 + seededNoise(worldX + 12) * 90;
+    const height = 42 + seededNoise(worldX + 18) * 54;
+
+    if (i % 3 === 0) {
+      context.fillRect(screenX, y, width, height);
+      context.fillRect(screenX + width * 0.15, y - height * 0.55, width * 0.7, height * 0.55);
+    } else {
+      context.beginPath();
+      context.ellipse(screenX + width / 2, y + height / 2, width / 2, height / 2, 0, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+
   context.restore();
 }
 
@@ -370,10 +416,13 @@ function drawStar(x, y, points, outerRadius, innerRadius) {
 function drawPlane() {
   const screenX = plane.x - cameraX;
   const screenY = plane.y;
+  const damage = 1 - plane.durability / 100;
+  const flicker = plane.invulnerableSeconds > 0 ? 0.55 + Math.sin(performance.now() * 0.04) * 0.25 : 1;
 
   context.save();
   context.translate(screenX, screenY);
   context.rotate(plane.pitch);
+  context.globalAlpha = flicker;
   context.shadowColor = 'rgba(255, 242, 203, 0.65)';
   context.shadowBlur = 16;
   context.fillStyle = plane.crashed ? '#d2c4ab' : '#fff5d6';
@@ -383,8 +432,8 @@ function drawPlane() {
   context.beginPath();
   context.moveTo(28, 0);
   context.lineTo(-24, -14);
-  context.lineTo(-9, 0);
-  context.lineTo(-24, 14);
+  context.lineTo(-9 + damage * 5, damage * 3);
+  context.lineTo(-24, 14 - damage * 7);
   context.closePath();
   context.fill();
   context.stroke();
@@ -394,6 +443,15 @@ function drawPlane() {
   context.lineTo(-9, 0);
   context.lineTo(-24, -14);
   context.stroke();
+
+  if (damage > 0.18) {
+    context.strokeStyle = 'rgba(96, 67, 53, 0.75)';
+    context.beginPath();
+    context.moveTo(-4, -5);
+    context.lineTo(5, 3);
+    context.lineTo(0, 10);
+    context.stroke();
+  }
 
   context.restore();
 }
@@ -680,6 +738,101 @@ function collectPickup(pickup) {
   runState.messageCondition = clamp(runState.messageCondition + 14, 0, 100);
 }
 
+function createParticles() {
+  const particleCount = Math.max(45, Math.floor((bounds.width * bounds.height) / 19000));
+  const newParticles = [];
+
+  for (let index = 0; index < particleCount; index += 1) {
+    newParticles.push(createParticle(index, Math.random() * bounds.width));
+  }
+
+  return newParticles;
+}
+
+function createParticle(index, initialX = bounds.width + 40) {
+  const typeRoll = seededNoise(index * 101 + runDistance * 0.003);
+  const type = typeRoll > 0.78 ? 'scrap' : typeRoll > 0.55 ? 'leaf' : 'dust';
+
+  return {
+    type,
+    layer: type === 'dust' ? 'back' : 'front',
+    x: initialX,
+    y: 40 + Math.random() * (bounds.height - 150),
+    drift: 8 + Math.random() * 34,
+    fall: type === 'dust' ? -2 + Math.random() * 5 : 10 + Math.random() * 28,
+    size: type === 'dust' ? 1 + Math.random() * 2 : 4 + Math.random() * 6,
+    spin: Math.random() * Math.PI * 2,
+    spinSpeed: -1.4 + Math.random() * 2.8,
+    alpha: type === 'dust' ? 0.18 + Math.random() * 0.3 : 0.34 + Math.random() * 0.28,
+  };
+}
+
+function updateParticles(deltaSeconds) {
+  for (const particle of particles) {
+    particle.x -= (particle.drift + plane.velocityX * 0.045) * deltaSeconds;
+    particle.y += particle.fall * deltaSeconds + Math.sin(performance.now() * 0.001 + particle.x * 0.02) * 0.08;
+    particle.spin += particle.spinSpeed * deltaSeconds;
+
+    if (particle.x < -40 || particle.y > bounds.height + 40 || particle.y < -40) {
+      const replacement = createParticle(Math.floor(Math.random() * 10000));
+      Object.assign(particle, replacement, {
+        x: bounds.width + 40 + Math.random() * 100,
+      });
+    }
+  }
+}
+
+function drawParticles(layer) {
+  const palette = getMoodPalette();
+
+  context.save();
+
+  for (const particle of particles) {
+    if (particle.layer !== layer) {
+      continue;
+    }
+
+    context.globalAlpha = particle.alpha;
+    context.translate(particle.x, particle.y);
+    context.rotate(particle.spin);
+
+    if (particle.type === 'dust') {
+      context.fillStyle = palette.particle;
+      context.beginPath();
+      context.arc(0, 0, particle.size, 0, Math.PI * 2);
+      context.fill();
+    } else if (particle.type === 'leaf') {
+      context.fillStyle = palette.leaf;
+      context.beginPath();
+      context.ellipse(0, 0, particle.size * 1.4, particle.size * 0.55, 0, 0, Math.PI * 2);
+      context.fill();
+    } else {
+      context.fillStyle = 'rgba(255, 245, 214, 0.75)';
+      context.fillRect(-particle.size, -particle.size * 0.65, particle.size * 2, particle.size * 1.3);
+    }
+
+    context.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+  }
+
+  context.restore();
+}
+
+function drawVignette() {
+  const vignette = context.createRadialGradient(
+    bounds.width / 2,
+    bounds.height / 2,
+    bounds.width * 0.15,
+    bounds.width / 2,
+    bounds.height / 2,
+    bounds.width * 0.72,
+  );
+
+  vignette.addColorStop(0, 'rgba(8, 11, 20, 0)');
+  vignette.addColorStop(1, 'rgba(8, 11, 20, 0.48)');
+  context.fillStyle = vignette;
+  context.fillRect(0, 0, bounds.width, bounds.height);
+}
+
 function pointNearRotatedRect(x, y, obstacle, padding) {
   const cos = Math.cos(-obstacle.rotation);
   const sin = Math.sin(-obstacle.rotation);
@@ -699,6 +852,69 @@ function pointNearRotatedRect(x, y, obstacle, padding) {
 function getCurrentChunkLabel() {
   const currentChunk = chunks.find((chunk) => plane.x >= chunk.x && plane.x < chunk.x + chunkWidth);
   return currentChunk?.label ?? 'memory';
+}
+
+function getMoodPalette() {
+  const label = getCurrentChunkLabel();
+  const palettes = {
+    bedroom: {
+      skyTop: '#201a36',
+      skyMid: '#6e4f79',
+      skyBottom: '#e59a6a',
+      glow: 'rgba(255, 202, 139, 0.36)',
+      far: '#17142a',
+      mid: '#100f20',
+      memory: '#4c3d63',
+      particle: 'rgba(255, 235, 190, 0.8)',
+      leaf: 'rgba(218, 169, 111, 0.74)',
+    },
+    hallway: {
+      skyTop: '#1e2742',
+      skyMid: '#566386',
+      skyBottom: '#d79f78',
+      glow: 'rgba(224, 222, 185, 0.28)',
+      far: '#172036',
+      mid: '#10182c',
+      memory: '#3d4c6a',
+      particle: 'rgba(235, 240, 255, 0.72)',
+      leaf: 'rgba(190, 185, 150, 0.64)',
+    },
+    classroom: {
+      skyTop: '#2b2037',
+      skyMid: '#8b5970',
+      skyBottom: '#f0b26a',
+      glow: 'rgba(255, 222, 153, 0.34)',
+      far: '#21182d',
+      mid: '#160f1e',
+      memory: '#593955',
+      particle: 'rgba(255, 238, 190, 0.78)',
+      leaf: 'rgba(224, 177, 92, 0.72)',
+    },
+    backyard: {
+      skyTop: '#152d32',
+      skyMid: '#4d735e',
+      skyBottom: '#efbd73',
+      glow: 'rgba(255, 220, 136, 0.38)',
+      far: '#10231f',
+      mid: '#09160f',
+      memory: '#2d5a44',
+      particle: 'rgba(225, 255, 205, 0.68)',
+      leaf: 'rgba(129, 191, 98, 0.78)',
+    },
+    'rain glass': {
+      skyTop: '#142333',
+      skyMid: '#37516b',
+      skyBottom: '#a38484',
+      glow: 'rgba(190, 219, 255, 0.22)',
+      far: '#111c2b',
+      mid: '#0a101c',
+      memory: '#294761',
+      particle: 'rgba(210, 232, 255, 0.72)',
+      leaf: 'rgba(134, 168, 182, 0.68)',
+    },
+  };
+
+  return palettes[label] ?? palettes.bedroom;
 }
 
 function tick(timestamp) {

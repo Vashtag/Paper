@@ -2,7 +2,7 @@
 
 A cozy side-scrolling silhouette roguelike prototype about flying a paper airplane through dreamlike childhood spaces.
 
-The current prototype includes a dive-and-lift flight model, procedural silhouette chunks, basic obstacle collisions, wind zones, run pickups, plane durability, message condition, distance tracking, and crash/restart flow.
+The current prototype includes a dive-and-lift flight model, procedural silhouette chunks, basic obstacle collisions, wind zones, run pickups, plane durability, message condition, distance tracking, mood palettes, particles, and crash/restart flow.
 
 ## Prototype controls
 
