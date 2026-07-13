@@ -1,3 +1,5 @@
+import { missions, moodPalettes } from './data.js';
+
 const app = document.querySelector('#app');
 
 if (!app) {
@@ -30,37 +32,6 @@ const bounds = {
 const chunkWidth = 520;
 const chunkKeepBehind = 2;
 const chunkKeepAhead = 8;
-const missions = [
-  {
-    title: 'Homework Rescue',
-    message: 'Bring a half-finished worksheet to a friend before the bell.',
-    targetDistance: 850,
-    hazard: 'Smudges matter most',
-    paletteHint: 'classroom',
-  },
-  {
-    title: 'Window Love Letter',
-    message: 'Carry a careful note across sunset air to the glowing window.',
-    targetDistance: 1100,
-    hazard: 'Wrinkles lower the reward',
-    paletteHint: 'bedroom',
-  },
-  {
-    title: 'Treehouse Password',
-    message: 'Deliver the secret clubhouse word past backyard branches.',
-    targetDistance: 1350,
-    hazard: 'Branches are extra risky',
-    paletteHint: 'backyard',
-  },
-  {
-    title: 'Rainy Apology',
-    message: 'Keep an apology readable through blue hallway weather.',
-    targetDistance: 1000,
-    hazard: 'Message condition is precious',
-    paletteHint: 'rain glass',
-  },
-];
-
 let chunks = [];
 let particles = [];
 let lastTimestamp = performance.now();
@@ -1052,65 +1023,7 @@ function getCurrentChunkLabel() {
 
 function getMoodPalette() {
   const label = runState.delivered ? runState.mission.paletteHint : getCurrentChunkLabel();
-  const palettes = {
-    bedroom: {
-      skyTop: '#201a36',
-      skyMid: '#6e4f79',
-      skyBottom: '#e59a6a',
-      glow: 'rgba(255, 202, 139, 0.36)',
-      far: '#17142a',
-      mid: '#100f20',
-      memory: '#4c3d63',
-      particle: 'rgba(255, 235, 190, 0.8)',
-      leaf: 'rgba(218, 169, 111, 0.74)',
-    },
-    hallway: {
-      skyTop: '#1e2742',
-      skyMid: '#566386',
-      skyBottom: '#d79f78',
-      glow: 'rgba(224, 222, 185, 0.28)',
-      far: '#172036',
-      mid: '#10182c',
-      memory: '#3d4c6a',
-      particle: 'rgba(235, 240, 255, 0.72)',
-      leaf: 'rgba(190, 185, 150, 0.64)',
-    },
-    classroom: {
-      skyTop: '#2b2037',
-      skyMid: '#8b5970',
-      skyBottom: '#f0b26a',
-      glow: 'rgba(255, 222, 153, 0.34)',
-      far: '#21182d',
-      mid: '#160f1e',
-      memory: '#593955',
-      particle: 'rgba(255, 238, 190, 0.78)',
-      leaf: 'rgba(224, 177, 92, 0.72)',
-    },
-    backyard: {
-      skyTop: '#152d32',
-      skyMid: '#4d735e',
-      skyBottom: '#efbd73',
-      glow: 'rgba(255, 220, 136, 0.38)',
-      far: '#10231f',
-      mid: '#09160f',
-      memory: '#2d5a44',
-      particle: 'rgba(225, 255, 205, 0.68)',
-      leaf: 'rgba(129, 191, 98, 0.78)',
-    },
-    'rain glass': {
-      skyTop: '#142333',
-      skyMid: '#37516b',
-      skyBottom: '#a38484',
-      glow: 'rgba(190, 219, 255, 0.22)',
-      far: '#111c2b',
-      mid: '#0a101c',
-      memory: '#294761',
-      particle: 'rgba(210, 232, 255, 0.72)',
-      leaf: 'rgba(134, 168, 182, 0.68)',
-    },
-  };
-
-  return palettes[label] ?? palettes.bedroom;
+  return moodPalettes[label] ?? moodPalettes.bedroom;
 }
 
 function tick(timestamp) {

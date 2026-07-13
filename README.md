@@ -23,6 +23,8 @@ Then open <http://localhost:5173>.
 
 The app uses relative asset paths so it can be hosted from a GitHub Pages project path such as `/Paper/`.
 
+Mission and palette data live in `src/data.js`; gameplay and rendering logic live in `src/main.js`.
+
 ## Build / checks
 
 ```bash
