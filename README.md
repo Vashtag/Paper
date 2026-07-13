@@ -29,4 +29,5 @@ Mission and palette data live in `src/data.js`; gameplay and rendering logic liv
 
 ```bash
 npm run build
+npm test
 ```
