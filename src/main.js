@@ -17,6 +17,7 @@ const input = {
   pitchUp: false,
   pitchDown: false,
   restart: false,
+  launch: false,
 };
 
 const bounds = {
@@ -65,6 +66,7 @@ let particles = [];
 let lastTimestamp = performance.now();
 let cameraX = 0;
 let runDistance = 0;
+let gamePhase = 'briefing';
 let plane = createPlane();
 let runState = createRunState();
 
@@ -132,6 +134,9 @@ function setKey(key, pressed) {
     case 'R':
       input.restart = pressed;
       break;
+    case 'Enter':
+      input.launch = pressed;
+      break;
   }
 }
 
@@ -143,9 +148,20 @@ function restartRun() {
   cameraX = 0;
   runDistance = 0;
   chunks = createInitialChunks();
+  gamePhase = 'briefing';
 }
 
 function update(deltaSeconds) {
+  if (gamePhase === 'briefing') {
+    if (input.launch || input.pitchUp || input.pitchDown) {
+      gamePhase = 'flying';
+      runState.lastUpgradeText = 'Dive, lift, and deliver.';
+      input.launch = false;
+    }
+
+    return;
+  }
+
   if (input.restart && plane.crashed) {
     restartRun();
     input.restart = false;
@@ -200,6 +216,7 @@ function update(deltaSeconds) {
 
 function crashPlane() {
   plane.crashed = true;
+  gamePhase = 'crashed';
   plane.durability = Math.max(0, plane.durability - 35);
   runState.outcome = createMissionOutcome();
   plane.bestDistance = Math.max(plane.bestDistance, Math.floor(runDistance));
@@ -238,6 +255,7 @@ function render() {
   drawParticles('front');
   drawVignette();
   drawHud();
+  drawBriefingOverlay();
 }
 
 function drawSky() {
@@ -530,6 +548,84 @@ function drawHud() {
     context.fillText('Press R to fold again', bounds.width / 2 - 86, bounds.height / 2 + 20);
     context.fillText(runState.outcome, bounds.width / 2 - 170, bounds.height / 2 + 52);
   }
+}
+
+function drawBriefingOverlay() {
+  if (gamePhase !== 'briefing') {
+    return;
+  }
+
+  context.save();
+  context.fillStyle = 'rgba(8, 11, 20, 0.72)';
+  context.fillRect(0, 0, bounds.width, bounds.height);
+
+  const cardWidth = Math.min(620, bounds.width - 42);
+  const cardX = (bounds.width - cardWidth) / 2;
+  const cardY = Math.max(70, bounds.height * 0.16);
+
+  context.fillStyle = 'rgba(255, 245, 214, 0.1)';
+  context.strokeStyle = 'rgba(255, 245, 214, 0.38)';
+  context.lineWidth = 2;
+  roundRect(cardX, cardY, cardWidth, 360, 24);
+  context.fill();
+  context.stroke();
+
+  context.fillStyle = '#fff5d6';
+  context.font = '800 42px Inter, system-ui, sans-serif';
+  context.fillText('Paper', cardX + 34, cardY + 64);
+
+  context.font = '700 24px Inter, system-ui, sans-serif';
+  context.fillText(runState.mission.title, cardX + 34, cardY + 112);
+
+  context.font = '500 17px Inter, system-ui, sans-serif';
+  wrapText(runState.mission.message, cardX + 34, cardY + 148, cardWidth - 68, 24);
+
+  context.fillStyle = '#ffe596';
+  context.font = '600 16px Inter, system-ui, sans-serif';
+  context.fillText(`Target: ${runState.mission.targetDistance} m`, cardX + 34, cardY + 236);
+  context.fillText(`Risk: ${runState.mission.hazard}`, cardX + 34, cardY + 264);
+
+  context.fillStyle = '#fff5d6';
+  context.font = '600 16px Inter, system-ui, sans-serif';
+  context.fillText('Controls: W/↑ lift • S/↓/Space dive • R restart after crash', cardX + 34, cardY + 310);
+  context.font = '800 20px Inter, system-ui, sans-serif';
+  context.fillText('Press Enter, W, S, Space, or click to launch', cardX + 34, cardY + 344);
+
+  context.restore();
+}
+
+function roundRect(x, y, width, height, radius) {
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.lineTo(x + width - radius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + radius);
+  context.lineTo(x + width, y + height - radius);
+  context.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  context.lineTo(x + radius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - radius);
+  context.lineTo(x, y + radius);
+  context.quadraticCurveTo(x, y, x + radius, y);
+  context.closePath();
+}
+
+function wrapText(text, x, y, maxWidth, lineHeight) {
+  const words = text.split(' ');
+  let line = '';
+  let currentY = y;
+
+  for (const word of words) {
+    const testLine = `${line}${word} `;
+
+    if (context.measureText(testLine).width > maxWidth && line !== '') {
+      context.fillText(line, x, currentY);
+      line = `${word} `;
+      currentY += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+
+  context.fillText(line, x, currentY);
 }
 
 function createInitialChunks() {
@@ -1037,6 +1133,11 @@ function seededNoise(value) {
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('keydown', (event) => setKey(event.key, true));
 window.addEventListener('keyup', (event) => setKey(event.key, false));
+canvas.addEventListener('pointerdown', () => {
+  if (gamePhase === 'briefing') {
+    input.launch = true;
+  }
+});
 
 resizeCanvas();
 chunks = createInitialChunks();

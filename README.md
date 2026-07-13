@@ -8,6 +8,7 @@ The current prototype includes a dive-and-lift flight model, delivery missions, 
 
 - `W` / `ArrowUp`: pitch up and convert speed into lift.
 - `S` / `ArrowDown` / `Space`: dive to gain speed.
+- `Enter` / click: launch from the mission briefing.
 - `R`: restart after a crash.
 
 ## Development
