@@ -1,4 +1,6 @@
+import { createAudioController } from './audio.js';
 import { missions, moodPalettes } from './data.js';
+import { clamp, seededNoise } from './math.js';
 
 const app = document.querySelector('#app');
 
@@ -38,6 +40,7 @@ let lastTimestamp = performance.now();
 let cameraX = 0;
 let runDistance = 0;
 let gamePhase = 'briefing';
+const audio = createAudioController();
 let plane = createPlane();
 let runState = createRunState();
 
@@ -108,6 +111,12 @@ function setKey(key, pressed) {
     case 'Enter':
       input.launch = pressed;
       break;
+    case 'm':
+    case 'M':
+      if (pressed) {
+        audio.toggleMute();
+      }
+      break;
   }
 }
 
@@ -127,6 +136,7 @@ function update(deltaSeconds) {
     if (input.launch || input.pitchUp || input.pitchDown) {
       gamePhase = 'flying';
       runState.lastUpgradeText = 'Dive, lift, and deliver.';
+      audio.launch();
       input.launch = false;
     }
 
@@ -173,6 +183,7 @@ function update(deltaSeconds) {
   cameraX = Math.max(0, plane.x - bounds.width * 0.28);
   runDistance = Math.max(runDistance, plane.x - 160);
 
+  audio.setWind(Math.hypot(plane.velocityX, plane.velocityY), plane.stall, plane.crashed);
   checkDeliveryProgress();
 
   if (plane.y < bounds.ceilingY || plane.y > bounds.groundY) {
@@ -186,6 +197,10 @@ function update(deltaSeconds) {
 }
 
 function crashPlane() {
+  if (!plane.crashed) {
+    audio.crash();
+  }
+
   plane.crashed = true;
   gamePhase = 'crashed';
   plane.durability = Math.max(0, plane.durability - 35);
@@ -207,6 +222,7 @@ function damagePlane(amount, messageAmount) {
   plane.velocityY = Math.min(260, plane.velocityY + 130);
   plane.pitch += 0.35;
   runState.lastUpgradeText = messageAmount > amount ? 'The message got scuffed' : 'The plane crumpled';
+  audio.hit();
 
   if (plane.durability <= 0 || runState.messageCondition <= 0) {
     crashPlane();
@@ -510,6 +526,7 @@ function drawHud() {
   context.fillStyle = '#ffe596';
   context.font = '500 15px Inter, system-ui, sans-serif';
   context.fillText(runState.lastUpgradeText, 36, 220);
+  context.fillText(`Audio ${audio.muted ? 'off' : 'on'} (M)`, 270, 220);
 
   if (plane.crashed) {
     context.fillStyle = '#fff5d6';
@@ -558,7 +575,7 @@ function drawBriefingOverlay() {
 
   context.fillStyle = '#fff5d6';
   context.font = '600 16px Inter, system-ui, sans-serif';
-  context.fillText('Controls: W/↑ lift • S/↓/Space dive • R restart after crash', cardX + 34, cardY + 310);
+  context.fillText('Controls: W/↑ lift • S/↓/Space dive • M mute • R restart', cardX + 34, cardY + 310);
   context.font = '800 20px Inter, system-ui, sans-serif';
   context.fillText('Press Enter, W, S, Space, or click to launch', cardX + 34, cardY + 344);
 
@@ -831,6 +848,7 @@ function collectPickup(pickup) {
   runState.pickupsCollected += 1;
   runState.confidence = clamp(runState.confidence + 18, 0, 100);
   runState.lastUpgradeText = pickup.name;
+  audio.collect();
 
   if (pickup.type === 'fold') {
     runState.folds.push(pickup.name);
@@ -865,6 +883,7 @@ function checkDeliveryProgress() {
   runState.deliveryBonus = Math.floor(runState.messageCondition + plane.durability * 0.5);
   runState.confidence = 100;
   runState.lastUpgradeText = 'Delivered! Keep riding the memory.';
+  audio.deliver();
 }
 
 function createMissionOutcome() {
@@ -1032,15 +1051,6 @@ function tick(timestamp) {
   update(deltaSeconds);
   render();
   requestAnimationFrame(tick);
-}
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function seededNoise(value) {
-  const noise = Math.sin(value * 12.9898) * 43758.5453;
-  return noise - Math.floor(noise);
 }
 
 window.addEventListener('resize', resizeCanvas);

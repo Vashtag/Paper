@@ -9,6 +9,7 @@ The current prototype includes a dive-and-lift flight model, delivery missions, 
 - `W` / `ArrowUp`: pitch up and convert speed into lift.
 - `S` / `ArrowDown` / `Space`: dive to gain speed.
 - `Enter` / click: launch from the mission briefing.
+- `M`: mute or unmute procedural audio.
 - `R`: restart after a crash.
 
 ## Development
@@ -23,9 +24,11 @@ Then open <http://localhost:5173>.
 
 The app uses relative asset paths so it can be hosted from a GitHub Pages project path such as `/Paper/`.
 
-Mission and palette data live in `src/data.js`; gameplay and rendering logic live in `src/main.js`.
+Mission and palette data live in `src/data.js`; reusable math helpers live in `src/math.js`; procedural browser audio lives in `src/audio.js`; gameplay and rendering logic live in `src/main.js`.
 
 ## Build / checks
+
+GitHub Actions runs the same build and test checks on pull requests and pushes to `main`.
 
 ```bash
 npm run build
