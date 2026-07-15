@@ -8,8 +8,9 @@ The current prototype includes a dive-and-lift flight model, delivery missions, 
 
 - `W` / `ArrowUp`: pitch up and convert speed into lift.
 - `S` / `ArrowDown` / `Space`: dive to gain speed.
-- `Enter` / click: launch from the mission briefing.
-- Drag / touch above or below the plane: steer on pointer devices.
+- `Enter` / click: advance from briefing to the launch point.
+- Click/touch and drag back from the plane, then release: launch.
+- Drag / touch above or below the plane during flight: steer on pointer devices.
 - `M`: mute or unmute procedural audio.
 - `R`: restart after a crash.
 

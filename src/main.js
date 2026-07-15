@@ -24,6 +24,11 @@ const input = {
   launch: false,
   pointerActive: false,
   pointerY: 0,
+  launchDragging: false,
+  launchStartX: 0,
+  launchStartY: 0,
+  launchCurrentX: 0,
+  launchCurrentY: 0,
 };
 
 const bounds = {
@@ -50,8 +55,8 @@ function createPlane() {
   return {
     x: 160,
     y: Math.max(180, window.innerHeight * 0.42),
-    velocityX: 265,
-    velocityY: -10,
+    velocityX: 0,
+    velocityY: 0,
     pitch: -0.04,
     durability: 100,
     invulnerableSeconds: 0,
@@ -132,6 +137,34 @@ function updatePointerPitchInput() {
   input.pitchDown = input.pointerY > plane.y + deadZone;
 }
 
+function resetLaunchDrag() {
+  input.launchDragging = false;
+  input.launchStartX = plane.x - cameraX;
+  input.launchStartY = plane.y;
+  input.launchCurrentX = input.launchStartX - 115;
+  input.launchCurrentY = input.launchStartY + 26;
+}
+
+function beginAiming() {
+  gamePhase = 'aiming';
+  resetLaunchDrag();
+  runState.lastUpgradeText = 'Drag back from the plane, then release.';
+}
+
+function launchPlaneFromDrag() {
+  const pullX = input.launchStartX - input.launchCurrentX;
+  const pullY = input.launchStartY - input.launchCurrentY;
+  const power = Math.hypot(pullX, pullY);
+
+  plane.velocityX = clamp(215 + pullX * 2.8 + power * 0.28, 180, 680);
+  plane.velocityY = clamp(pullY * 2.15, -430, 260);
+  plane.pitch = clamp(Math.atan2(plane.velocityY, plane.velocityX), -0.82, 0.54);
+  gamePhase = 'flying';
+  input.launchDragging = false;
+  runState.lastUpgradeText = 'Launched! Dive, lift, and deliver.';
+  audio.launch();
+}
+
 function restartRun() {
   const bestDistance = plane.bestDistance;
   plane = createPlane();
@@ -141,14 +174,22 @@ function restartRun() {
   runDistance = 0;
   chunks = createInitialChunks();
   gamePhase = 'briefing';
+  resetLaunchDrag();
 }
 
 function update(deltaSeconds) {
   if (gamePhase === 'briefing') {
+    if (input.launch) {
+      beginAiming();
+      input.launch = false;
+    }
+
+    return;
+  }
+
+  if (gamePhase === 'aiming') {
     if (input.launch || input.pitchUp || input.pitchDown) {
-      gamePhase = 'flying';
-      runState.lastUpgradeText = 'Dive, lift, and deliver.';
-      audio.launch();
+      launchPlaneFromDrag();
       input.launch = false;
     }
 
@@ -251,6 +292,7 @@ function render() {
   drawWorldSilhouettes();
   drawDeliveryMarker();
   drawPickups();
+  drawLaunchAim();
   drawPlane();
   drawParticles('front');
   drawVignette();
@@ -588,10 +630,51 @@ function drawBriefingOverlay() {
 
   context.fillStyle = '#fff5d6';
   context.font = '600 16px Inter, system-ui, sans-serif';
-  context.fillText('Controls: W/↑ lift • S/↓/Space dive • drag/touch to steer • M mute', cardX + 34, cardY + 310);
+  context.fillText('Launch: drag back and release • Flight: W/↑ lift • S/↓/Space dive', cardX + 34, cardY + 310);
   context.font = '800 20px Inter, system-ui, sans-serif';
-  context.fillText('Press Enter, W, S, Space, or tap to launch', cardX + 34, cardY + 344);
+  context.fillText('Press Enter or tap to set the launch point; drag controls flight after launch', cardX + 34, cardY + 344);
 
+  context.restore();
+}
+
+function drawLaunchAim() {
+  if (gamePhase !== 'aiming') {
+    return;
+  }
+
+  const startX = plane.x - cameraX;
+  const startY = plane.y;
+  const currentX = input.launchCurrentX;
+  const currentY = input.launchCurrentY;
+  const pullX = startX - currentX;
+  const pullY = startY - currentY;
+  const power = clamp(Math.hypot(pullX, pullY) / 160, 0, 1);
+
+  context.save();
+  context.strokeStyle = `rgba(255, 245, 214, ${0.38 + power * 0.52})`;
+  context.fillStyle = 'rgba(255, 245, 214, 0.16)';
+  context.lineWidth = 4;
+  context.setLineDash([10, 10]);
+  context.beginPath();
+  context.moveTo(startX, startY);
+  context.lineTo(currentX, currentY);
+  context.stroke();
+  context.setLineDash([]);
+
+  context.beginPath();
+  context.arc(startX, startY, 36 + power * 14, 0, Math.PI * 2);
+  context.stroke();
+
+  context.beginPath();
+  context.arc(currentX, currentY, 18, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+
+  context.fillStyle = '#fff5d6';
+  context.font = '800 22px Inter, system-ui, sans-serif';
+  context.fillText('Pull back, then release to launch', Math.max(24, startX - 120), startY - 74);
+  context.font = '600 16px Inter, system-ui, sans-serif';
+  context.fillText(`Launch power ${Math.round(power * 100)}%`, Math.max(24, startX - 76), startY - 48);
   context.restore();
 }
 
@@ -1071,7 +1154,21 @@ window.addEventListener('keydown', (event) => setKey(event.key, true));
 window.addEventListener('keyup', (event) => setKey(event.key, false));
 canvas.addEventListener('pointerdown', (event) => {
   if (gamePhase === 'briefing') {
-    input.launch = true;
+    beginAiming();
+    input.launchDragging = true;
+    input.launchCurrentX = event.clientX;
+    input.launchCurrentY = event.clientY;
+    canvas.setPointerCapture(event.pointerId);
+    return;
+  }
+
+  if (gamePhase === 'aiming') {
+    input.launchDragging = true;
+    input.launchStartX = plane.x - cameraX;
+    input.launchStartY = plane.y;
+    input.launchCurrentX = event.clientX;
+    input.launchCurrentY = event.clientY;
+    canvas.setPointerCapture(event.pointerId);
     return;
   }
 
@@ -1084,21 +1181,37 @@ canvas.addEventListener('pointerdown', (event) => {
   canvas.setPointerCapture(event.pointerId);
 });
 canvas.addEventListener('pointermove', (event) => {
+  if (input.launchDragging) {
+    input.launchCurrentX = event.clientX;
+    input.launchCurrentY = event.clientY;
+    return;
+  }
+
   if (input.pointerActive) {
     input.pointerY = event.clientY;
   }
 });
 canvas.addEventListener('pointerup', () => {
+  if (input.launchDragging && gamePhase === 'aiming') {
+    launchPlaneFromDrag();
+    return;
+  }
+
   input.pointerActive = false;
   input.pitchUp = false;
   input.pitchDown = false;
 });
 canvas.addEventListener('pointercancel', () => {
+  input.launchDragging = false;
   input.pointerActive = false;
   input.pitchUp = false;
   input.pitchDown = false;
 });
 canvas.addEventListener('lostpointercapture', () => {
+  if (gamePhase === 'aiming') {
+    input.launchDragging = false;
+  }
+
   if (gamePhase !== 'briefing') {
     input.pointerActive = false;
   }
@@ -1106,4 +1219,5 @@ canvas.addEventListener('lostpointercapture', () => {
 
 resizeCanvas();
 chunks = createInitialChunks();
+resetLaunchDrag();
 requestAnimationFrame(tick);
