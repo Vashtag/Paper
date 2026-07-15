@@ -22,6 +22,8 @@ const input = {
   pitchDown: false,
   restart: false,
   launch: false,
+  pointerActive: false,
+  pointerY: 0,
 };
 
 const bounds = {
@@ -120,6 +122,16 @@ function setKey(key, pressed) {
   }
 }
 
+function updatePointerPitchInput() {
+  if (!input.pointerActive) {
+    return;
+  }
+
+  const deadZone = 28;
+  input.pitchUp = input.pointerY < plane.y - deadZone;
+  input.pitchDown = input.pointerY > plane.y + deadZone;
+}
+
 function restartRun() {
   const bestDistance = plane.bestDistance;
   plane = createPlane();
@@ -155,6 +167,7 @@ function update(deltaSeconds) {
     return;
   }
 
+  updatePointerPitchInput();
   plane.invulnerableSeconds = Math.max(0, plane.invulnerableSeconds - deltaSeconds);
   runState.confidence = clamp(runState.confidence + deltaSeconds * 1.8, 0, 100);
 
@@ -575,9 +588,9 @@ function drawBriefingOverlay() {
 
   context.fillStyle = '#fff5d6';
   context.font = '600 16px Inter, system-ui, sans-serif';
-  context.fillText('Controls: W/↑ lift • S/↓/Space dive • M mute • R restart', cardX + 34, cardY + 310);
+  context.fillText('Controls: W/↑ lift • S/↓/Space dive • drag/touch to steer • M mute', cardX + 34, cardY + 310);
   context.font = '800 20px Inter, system-ui, sans-serif';
-  context.fillText('Press Enter, W, S, Space, or click to launch', cardX + 34, cardY + 344);
+  context.fillText('Press Enter, W, S, Space, or tap to launch', cardX + 34, cardY + 344);
 
   context.restore();
 }
@@ -1056,9 +1069,38 @@ function tick(timestamp) {
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('keydown', (event) => setKey(event.key, true));
 window.addEventListener('keyup', (event) => setKey(event.key, false));
-canvas.addEventListener('pointerdown', () => {
+canvas.addEventListener('pointerdown', (event) => {
   if (gamePhase === 'briefing') {
     input.launch = true;
+    return;
+  }
+
+  if (gamePhase !== 'flying') {
+    return;
+  }
+
+  input.pointerActive = true;
+  input.pointerY = event.clientY;
+  canvas.setPointerCapture(event.pointerId);
+});
+canvas.addEventListener('pointermove', (event) => {
+  if (input.pointerActive) {
+    input.pointerY = event.clientY;
+  }
+});
+canvas.addEventListener('pointerup', () => {
+  input.pointerActive = false;
+  input.pitchUp = false;
+  input.pitchDown = false;
+});
+canvas.addEventListener('pointercancel', () => {
+  input.pointerActive = false;
+  input.pitchUp = false;
+  input.pitchDown = false;
+});
+canvas.addEventListener('lostpointercapture', () => {
+  if (gamePhase !== 'briefing') {
+    input.pointerActive = false;
   }
 });
 

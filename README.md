@@ -9,6 +9,7 @@ The current prototype includes a dive-and-lift flight model, delivery missions, 
 - `W` / `ArrowUp`: pitch up and convert speed into lift.
 - `S` / `ArrowDown` / `Space`: dive to gain speed.
 - `Enter` / click: launch from the mission briefing.
+- Drag / touch above or below the plane: steer on pointer devices.
 - `M`: mute or unmute procedural audio.
 - `R`: restart after a crash.
 
@@ -28,7 +29,7 @@ Mission and palette data live in `src/data.js`; reusable math helpers live in `s
 
 ## Build / checks
 
-GitHub Actions runs the same build and test checks on pull requests and pushes to `main`.
+GitHub Actions runs the same build and test checks on pull requests and pushes to `main`. A separate Pages workflow deploys the static site from `main` to GitHub Pages after the same checks pass.
 
 ```bash
 npm run build
