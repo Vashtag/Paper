@@ -8,6 +8,8 @@ The current prototype includes a dive-and-lift flight model, delivery missions, 
 
 - `W` / `ArrowUp`: pitch up and convert speed into lift.
 - `S` / `ArrowDown` / `Space`: dive to gain speed.
+- `D` / `ArrowRight`: gain forward speed.
+- `A` / `ArrowLeft`: brake and trade speed for control.
 - Click/touch and drag back from the plane, then release: launch from the starting point.
 - `Enter` / `W` / `S` / `Space`: quick-launch from the starting point.
 - Drag / touch above or below the plane during flight: steer on pointer devices.

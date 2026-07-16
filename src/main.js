@@ -20,6 +20,8 @@ app.append(canvas);
 const input = {
   pitchUp: false,
   pitchDown: false,
+  accelerate: false,
+  brake: false,
   restart: false,
   launch: false,
   pointerActive: false,
@@ -110,6 +112,16 @@ function setKey(key, pressed) {
     case 'S':
     case ' ':
       input.pitchDown = pressed;
+      break;
+    case 'ArrowRight':
+    case 'd':
+    case 'D':
+      input.accelerate = pressed;
+      break;
+    case 'ArrowLeft':
+    case 'a':
+    case 'A':
+      input.brake = pressed;
       break;
     case 'r':
     case 'R':
@@ -231,18 +243,21 @@ function update(deltaSeconds) {
 
   const speed = Math.hypot(plane.velocityX, plane.velocityY);
   const wind = getWindAt(plane.x, plane.y);
-  const diveAcceleration = Math.max(0, Math.sin(plane.pitch)) * 360;
+  const diveAcceleration = Math.max(0, Math.sin(plane.pitch)) * 460;
   const climbAngle = Math.max(0, -Math.sin(plane.pitch));
-  const lift = climbAngle * speed * 1.55;
-  const stallPressure = climbAngle > 0.48 && speed < 245 ? (0.48 + climbAngle) * 290 : 0;
-  const drag = 0.985 - Math.max(0, speed - 380) * 0.000025;
+  const lift = climbAngle * speed * 1.7;
+  const throttle = input.accelerate ? 340 : 0;
+  const brake = input.brake ? 290 : 0;
+  const brakeLift = input.brake ? 90 : 0;
+  const stallPressure = climbAngle > 0.48 && speed < 275 ? (0.5 + climbAngle) * 325 : 0;
+  const drag = 0.986 - Math.max(0, speed - 440) * 0.000028 - (input.brake ? 0.012 : 0);
 
-  plane.velocityX += (42 + diveAcceleration - climbAngle * 78 + wind.x) * deltaSeconds;
-  plane.velocityY += (285 - lift + stallPressure + wind.y) * deltaSeconds;
-  plane.velocityX *= Math.pow(clamp(drag, 0.945, 0.992), deltaSeconds * 60);
-  plane.velocityY *= Math.pow(0.991, deltaSeconds * 60);
-  plane.velocityX = clamp(plane.velocityX, 150, 640);
-  plane.velocityY = clamp(plane.velocityY, -430, 470);
+  plane.velocityX += (58 + throttle + diveAcceleration - brake - climbAngle * 96 + wind.x) * deltaSeconds;
+  plane.velocityY += (275 - lift - brakeLift + stallPressure + wind.y) * deltaSeconds;
+  plane.velocityX *= Math.pow(clamp(drag, 0.925, 0.994), deltaSeconds * 60);
+  plane.velocityY *= Math.pow(input.accelerate ? 0.996 : 0.992, deltaSeconds * 60);
+  plane.velocityX = clamp(plane.velocityX, 95, 760);
+  plane.velocityY = clamp(plane.velocityY, -520, 520);
 
   plane.x += plane.velocityX * deltaSeconds;
   plane.y += plane.velocityY * deltaSeconds;
@@ -643,7 +658,7 @@ function drawBriefingOverlay() {
 
   context.fillStyle = '#fff5d6';
   context.font = '600 16px Inter, system-ui, sans-serif';
-  context.fillText('Launch: drag back and release • Flight: W/↑ lift • S/↓/Space dive', cardX + 34, cardY + 310);
+  context.fillText('Launch: drag back and release • W/S pitch • A brake • D speed up', cardX + 34, cardY + 310);
   context.font = '800 20px Inter, system-ui, sans-serif';
   context.fillText('Press Enter or tap to set the launch point; drag controls flight after launch', cardX + 34, cardY + 344);
 
