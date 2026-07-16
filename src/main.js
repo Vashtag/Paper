@@ -46,7 +46,7 @@ let particles = [];
 let lastTimestamp = performance.now();
 let cameraX = 0;
 let runDistance = 0;
-let gamePhase = 'briefing';
+let gamePhase = 'aiming';
 const audio = createAudioController();
 let plane = createPlane();
 let runState = createRunState();
@@ -141,14 +141,14 @@ function resetLaunchDrag() {
   input.launchDragging = false;
   input.launchStartX = plane.x - cameraX;
   input.launchStartY = plane.y;
-  input.launchCurrentX = input.launchStartX - 115;
-  input.launchCurrentY = input.launchStartY + 26;
+  input.launchCurrentX = input.launchStartX;
+  input.launchCurrentY = input.launchStartY;
 }
 
 function beginAiming() {
   gamePhase = 'aiming';
   resetLaunchDrag();
-  runState.lastUpgradeText = 'Drag back from the plane, then release.';
+  runState.lastUpgradeText = 'Pull the plane back, then release.';
 }
 
 function launchPlaneFromDrag() {
@@ -156,13 +156,26 @@ function launchPlaneFromDrag() {
   const pullY = input.launchStartY - input.launchCurrentY;
   const power = Math.hypot(pullX, pullY);
 
-  plane.velocityX = clamp(215 + pullX * 2.8 + power * 0.28, 180, 680);
-  plane.velocityY = clamp(pullY * 2.15, -430, 260);
+  plane.velocityX = clamp(260 + pullX * 4.4 + power * 0.36, 230, 820);
+  plane.velocityY = clamp(pullY * 3.75, -560, 330);
   plane.pitch = clamp(Math.atan2(plane.velocityY, plane.velocityX), -0.82, 0.54);
   gamePhase = 'flying';
   input.launchDragging = false;
   runState.lastUpgradeText = 'Launched! Dive, lift, and deliver.';
   audio.launch();
+}
+
+function setLaunchDragPosition(x, y) {
+  const maxPull = 190;
+  const anchorX = input.launchStartX;
+  const anchorY = input.launchStartY;
+  const dx = x - anchorX;
+  const dy = y - anchorY;
+  const distance = Math.hypot(dx, dy);
+  const scale = distance > maxPull ? maxPull / distance : 1;
+
+  input.launchCurrentX = anchorX + dx * scale;
+  input.launchCurrentY = anchorY + dy * scale;
 }
 
 function restartRun() {
@@ -173,7 +186,7 @@ function restartRun() {
   cameraX = 0;
   runDistance = 0;
   chunks = createInitialChunks();
-  gamePhase = 'briefing';
+  gamePhase = 'aiming';
   resetLaunchDrag();
 }
 
@@ -514,8 +527,8 @@ function drawStar(x, y, points, outerRadius, innerRadius) {
 }
 
 function drawPlane() {
-  const screenX = plane.x - cameraX;
-  const screenY = plane.y;
+  const screenX = gamePhase === 'aiming' ? input.launchCurrentX : plane.x - cameraX;
+  const screenY = gamePhase === 'aiming' ? input.launchCurrentY : plane.y;
   const damage = 1 - plane.durability / 100;
   const flicker = plane.invulnerableSeconds > 0 ? 0.55 + Math.sin(performance.now() * 0.04) * 0.25 : 1;
 
@@ -648,31 +661,36 @@ function drawLaunchAim() {
   const currentY = input.launchCurrentY;
   const pullX = startX - currentX;
   const pullY = startY - currentY;
-  const power = clamp(Math.hypot(pullX, pullY) / 160, 0, 1);
+  const power = clamp(Math.hypot(pullX, pullY) / 190, 0, 1);
 
   context.save();
-  context.strokeStyle = `rgba(255, 245, 214, ${0.38 + power * 0.52})`;
+  context.strokeStyle = `rgba(255, 245, 214, ${0.48 + power * 0.45})`;
   context.fillStyle = 'rgba(255, 245, 214, 0.16)';
-  context.lineWidth = 4;
-  context.setLineDash([10, 10]);
+  context.lineWidth = 8;
   context.beginPath();
   context.moveTo(startX, startY);
   context.lineTo(currentX, currentY);
   context.stroke();
-  context.setLineDash([]);
 
+  context.strokeStyle = 'rgba(255, 211, 111, 0.72)';
+  context.lineWidth = 3;
   context.beginPath();
-  context.arc(startX, startY, 36 + power * 14, 0, Math.PI * 2);
+  context.moveTo(currentX, currentY);
+  context.lineTo(startX + pullX * 0.52, startY + pullY * 0.52);
   context.stroke();
 
   context.beginPath();
-  context.arc(currentX, currentY, 18, 0, Math.PI * 2);
+  context.arc(startX, startY, 42 + power * 16, 0, Math.PI * 2);
+  context.stroke();
+
+  context.beginPath();
+  context.arc(currentX, currentY, 22, 0, Math.PI * 2);
   context.fill();
   context.stroke();
 
   context.fillStyle = '#fff5d6';
   context.font = '800 22px Inter, system-ui, sans-serif';
-  context.fillText('Pull back, then release to launch', Math.max(24, startX - 120), startY - 74);
+  context.fillText('Pull the plane back, then release', Math.max(24, startX - 136), startY - 82);
   context.font = '600 16px Inter, system-ui, sans-serif';
   context.fillText(`Launch power ${Math.round(power * 100)}%`, Math.max(24, startX - 76), startY - 48);
   context.restore();
@@ -1156,8 +1174,7 @@ canvas.addEventListener('pointerdown', (event) => {
   if (gamePhase === 'briefing') {
     beginAiming();
     input.launchDragging = true;
-    input.launchCurrentX = event.clientX;
-    input.launchCurrentY = event.clientY;
+    setLaunchDragPosition(event.clientX, event.clientY);
     canvas.setPointerCapture(event.pointerId);
     return;
   }
@@ -1166,8 +1183,7 @@ canvas.addEventListener('pointerdown', (event) => {
     input.launchDragging = true;
     input.launchStartX = plane.x - cameraX;
     input.launchStartY = plane.y;
-    input.launchCurrentX = event.clientX;
-    input.launchCurrentY = event.clientY;
+    setLaunchDragPosition(event.clientX, event.clientY);
     canvas.setPointerCapture(event.pointerId);
     return;
   }
@@ -1182,8 +1198,7 @@ canvas.addEventListener('pointerdown', (event) => {
 });
 canvas.addEventListener('pointermove', (event) => {
   if (input.launchDragging) {
-    input.launchCurrentX = event.clientX;
-    input.launchCurrentY = event.clientY;
+    setLaunchDragPosition(event.clientX, event.clientY);
     return;
   }
 
